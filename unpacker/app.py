@@ -65,19 +65,42 @@ def parse_sff(filepath):
     return entries, offset  # data_offset = offset
 
 
+def sanitize_filename(filename):
+    """Remove or replace characters invalid on Windows."""
+    # Remove non-printable / control characters
+    cleaned = "".join(c for c in filename if c.isprintable() and c not in r'\/:*?"<>|')
+    return cleaned.strip() or "_unnamed"
+
+
 def extract_all(filepath, entries, data_offset, output_dir, progress_cb=None):
     """Extract all entries to output_dir. Calls progress_cb(i, total) each step."""
     total = len(entries)
+    skipped = 0
     with open(filepath, "rb") as f:
         f.seek(data_offset)
         for i, entry in enumerate(entries):
             file_data = f.read(entry["size"])
-            out_path = Path(output_dir) / entry["filename"].replace("\\", os.sep)
+
+            # Split path parts and sanitize each one
+            parts = entry["filename"].replace("\\", "/").split("/")
+            parts = [sanitize_filename(p) for p in parts]
+
+            # Skip if the filename looks corrupted (too short or all underscores)
+            if all(p in ("", "_unnamed") for p in parts):
+                skipped += 1
+                if progress_cb:
+                    progress_cb(i + 1, total)
+                continue
+
+            out_path = Path(output_dir).joinpath(*parts)
             out_path.parent.mkdir(parents=True, exist_ok=True)
             with open(out_path, "wb") as out:
                 out.write(file_data)
+
             if progress_cb:
                 progress_cb(i + 1, total)
+
+    return skipped
 
 
 # ─────────────────────────────────────────────
@@ -425,4 +448,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
